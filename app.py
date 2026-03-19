@@ -1,48 +1,93 @@
 import os
-from src.prompt import prompt_template
-from src.helper import download_hugging_face_embeddings
-from langchain.chains import RetrievalQA
-from langchain_community.llms import CTransformers
-from langchain_core.prompts import PromptTemplate
-from langchain_pinecone import PineconeVectorStore
-from dotenv import load_dotenv
+import time
 
-load_dotenv()
-PINECONE_API_KEY = os.environ.get('PINECONE_API_KEY')
+from src.telemetry import init_metrics_db, insert_query_log, new_query_id, utc_now_iso
 
+init_metrics_db()
 
-embedding = download_hugging_face_embeddings()
+def ask_rag(qa, vectorstore, query: str, user_id: str = None, session_id: str = None) -> dict:
+    query_id = new_query_id()
+    start_total = time.perf_counter()
 
+    retrieval_latency_ms = None
+    generation_latency_ms = None
+    docs_returned = 0
+    answer = None
 
+    try:
+        # Retrieval timing
+        start_retrieval = time.perf_counter()
+        docs = vectorstore.similarity_search(query, k=4)
+        retrieval_latency_ms = int((time.perf_counter() - start_retrieval) * 1000)
+        docs_returned = len(docs)
 
-index_name = "gen-ai-rag"
-vectorstore = PineconeVectorStore.from_existing_index(index_name,embedding)
+        # Generation timing
+        start_generation = time.perf_counter()
+        result = qa.invoke({"query": query})
+        generation_latency_ms = int((time.perf_counter() - start_generation) * 1000)
 
+        answer = result.get("result") if isinstance(result, dict) else str(result)
 
-PROMPT = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
+        total_latency_ms = int((time.perf_counter() - start_total) * 1000)
 
+        insert_query_log({
+            "query_id": query_id,
+            "request_ts": utc_now_iso(),
+            "request_date": utc_now_iso()[:10],
+            "user_id": user_id,
+            "session_id": session_id,
+            "environment": os.getenv("ENVIRONMENT", "dev"),
+            "app_version": os.getenv("APP_VERSION", "1.0.0"),
+            "query_text": query,
+            "query_length_chars": len(query),
+            "retrieval_k": 4,
+            "docs_returned": docs_returned,
+            "retrieval_latency_ms": retrieval_latency_ms,
+            "generation_latency_ms": generation_latency_ms,
+            "total_latency_ms": total_latency_ms,
+            "model_name": "llama-2-7b-chat.ggmlv3.q2_K.bin",
+            "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+            "vector_store": "pinecone",
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "total_tokens": None,
+            "status": "success",
+            "error_type": None,
+            "error_message": None,
+            "response_length_chars": len(answer) if answer else 0,
+            "answer_preview": answer[:500] if answer else None
+        })
 
-config = {'max_new_tokens': 100, 'repetition_penalty': 1.1}
-llm = CTransformers(
-    model="../model/llama-2-7b-chat.ggmlv3.q2_K.bin",
-    model_type="llama",
-    config=config
-)
+        return {"query_id": query_id, "answer": answer, "docs_returned": docs_returned}
 
+    except Exception as exc:
+        total_latency_ms = int((time.perf_counter() - start_total) * 1000)
 
-# llm_chain = llm | PROMPT
-
-chain_type_kwargs={"prompt": PROMPT}
-
-qa = RetrievalQA.from_chain_type(  
-    llm=llm,  
-    chain_type="stuff",  
-    retriever=vectorstore.as_retriever(),
-)
-
-# Prepare the context and query
-query = "Who is Asutosh Sidhya?"
-
-# Call the invoke method with the correct input keys
-result = qa.invoke({"query": query})  # Ensure you include context if required
-print(result)
+        insert_query_log({
+            "query_id": query_id,
+            "request_ts": utc_now_iso(),
+            "request_date": utc_now_iso()[:10],
+            "user_id": user_id,
+            "session_id": session_id,
+            "environment": os.getenv("ENVIRONMENT", "dev"),
+            "app_version": os.getenv("APP_VERSION", "1.0.0"),
+            "query_text": query,
+            "query_length_chars": len(query),
+            "retrieval_k": 4,
+            "docs_returned": docs_returned,
+            "retrieval_latency_ms": retrieval_latency_ms,
+            "generation_latency_ms": generation_latency_ms,
+            "total_latency_ms": total_latency_ms,
+            "model_name": "llama-2-7b-chat.ggmlv3.q2_K.bin",
+            "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+            "vector_store": "pinecone",
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "total_tokens": None,
+            "status": "error",
+            "error_type": type(exc).__name__,
+            "error_message": str(exc),
+            "response_length_chars": 0,
+            "answer_preview": None
+        })
+        raise
