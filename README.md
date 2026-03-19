@@ -43,7 +43,3 @@ This project implements an end-to-end **Retrieval-Augmented Generation (RAG)** a
 2. Generate embeddings using Hugging Face models.
 3. Use Pinecone for efficient vector retrieval.
 4. Generate informative, context-rich responses using Llama2.
-
-
-## License
- - This project is licensed under the MIT License. See the LICENSE file for more details.

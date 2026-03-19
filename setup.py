@@ -1,10 +1,10 @@
 from setuptools import find_packages, setup
 
 version = '0.0.1'
-author = 'Asutosh Sidhya'
-mail = 'ashutoshsidhya69@gmail.com'
+author = 'Rakesh'
+mail = 'rakeshchandramandava28@gmail.com'
 desc = 'A GenAI project for college use cases'
-opt_url = 'https://github.com/sidhyaashu/END-TO-END-GenAI-RAG-APP.git'
+opt_url = 'https://github.com/Rakesh9759/GenAI_RAG_Application.git'
 
 setup(
     name='GenAi',  # Use snake_case for package names
